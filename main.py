@@ -215,12 +215,13 @@ def execute_function(function: Function, *args, **kwargs):
             comment = input("what went wrong?")
             impl = fix_code(impl, ns, f"Human feedback: {comment}")
 
-
+prompt=input("what do you want to do today?")
 print(
     execute_function(
         request_gpt4_implementation(
             FunctionSpec.Schema().loads(
-                '{"sig": {"returnType":"str","name":"create_and_deploy_wizgpt_site","args":[]},"comment":"write a bit of code for a simple web site advertising wizgpt, an autonomous agent powered by gpt-4; use the gcloud cli to deploy it (use the gcloud environment configs for project, region, etc). If you use app engine, remember to create an app.yaml specifying how to deploy the html","env":{}}'
+                #                '{"sig": {"returnType":"str","name":"do_what_the_comment_says","args":[]},"comment":"write a bit of code for a simple web site advertising wizgpt, an autonomous agent powered by gpt-4; use the gcloud cli to deploy it (use the gcloud environment configs for project, region, etc). If you use app engine, remember to create an app.yaml specifying how to deploy the html","env":{}}'
+                '{"sig": {"returnType":"str","name":"do_what_the_comment_says","args":[]},"comment":"'+prompt+'","env":{}}'
             )
         ),
     )
