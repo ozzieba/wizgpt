@@ -1,13 +1,17 @@
 import openai
+import tiktoken
+from subprocess import run, PIPE
 from marshmallow_dataclass import dataclass
 from typing import List, Tuple, Optional
 import json
 import sys
+import os
 from time import sleep
 import builtins
 import traceback as tb
 import logging
 import readline
+import io
 
 
 @dataclass
@@ -58,7 +62,7 @@ def prefill_input(prompt, prefill=""):
     finally:
         readline.set_startup_hook()
 
-
+enc = tiktoken.encoding_for_model('gpt-4')
 def call_gpt4(
     system_prompt,
     user_prompt,
@@ -67,6 +71,8 @@ def call_gpt4(
     log_response=True,
     allow_edit=True,
 ):
+    tokenized=enc.encode(f"{system_prompt}\n{user_prompt}")
+    max_len=8192-len(tokenized)-100
     if log_prompt:
         sys.stderr.write(user_prompt)
         sys.stderr.flush()
@@ -74,9 +80,11 @@ def call_gpt4(
         system_prompt, user_prompt = edit_or_abort(system_prompt, user_prompt)
     resp = openai.ChatCompletion.create(
         model="gpt-4",
+        # model="gpt-3.5-turbo",
         temperature=0.9,
         n=1,
-        max_tokens=1000,
+        #max_tokens=min(2*len(tokenized),max_len),
+        max_tokens=500,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -115,7 +123,7 @@ def edit_or_abort(system_prompt, user_prompt):
 
 def get_human_approval(message):
     feedback = input(message)
-    if feedback[0] in "YyTt1":
+    if (feedback or "y")[0] in "YyTt1":
         return True
     if feedback[:3] == "err":
         raise RuntimeError(f"got err feedback from user: ${feedback}")
@@ -159,6 +167,48 @@ class CustomGlobalNamespace(dict):
             return super().__getitem__(key)
         except KeyError:
             return self.handle_undefined(key)
+
+
+env={}
+def do_at_repl(task):
+    session=io.StringIO()
+    err=io.StringIO()
+    session.write("""Python 3.8.2 (default, Mar 23 2020, 11:15:32)
+[GCC 9.2.1 20191008] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> """)
+    system_prompt = "You are an expert Python coder who likes to code from the Python repl; you manipulate files and run bash commands as necessary from the Python repl; you are now sitting at a Python repl; you are given a task which you are trying to complete as part of your job, as well as the record of the session so far. You return the next Python command you will run. You return only Python code, as it will be executed automatically and directly. Do not enclose in a code block, nor include any other prose. You output only one command at a time. You return 'exit()' when you are done with your task; your environment variables include GITHUB_TOKEN, and you can use the github api with that token. You do not type expressions to be evaluated directly in the repl, but rather you use print(). You are not interacting with any human, so whatever information you need you must use Python commands to get it; eg, never refer to 'your-username', but rather figure out the username from the repl using python commands; never run multiple Python statements together, always one per message, and then wait for the response if any"
+    def syscmd(command):
+        result = run(["bash","-c",command],stdout=PIPE,stderr=PIPE)
+        session.write(result.stdout.decode("utf-8"))
+        session.write(result.stderr.decode("utf-8"))
+    ns = CustomGlobalNamespace({**globals(), **builtins.__dict__}, locals={})
+
+    while True:
+        user_prompt = json.dumps({"task": task, "err":err.getvalue(), "session": session.getvalue()})
+        command = call_gpt4(system_prompt, user_prompt)
+        if command[:6] == "exit()":
+            break
+        if get_human_approval(f"about to run command: ${command}"):
+            try:
+                oldout=sys.stdout
+                olderr=sys.stderr
+                oldsys=os.system
+                session.write(f"{command}\n")
+                sys.stdout=session
+                sys.stderr=session
+                os.system=syscmd
+                ns['sys']=sys
+                ns['os']=os
+                exec(command, ns)
+            except Exception as e:
+                session.write(tb.format_exc())
+            finally:
+                sys.stdout=oldout
+                sys.stderr=olderr
+                os.system=oldsys
+                session.write("\n>>> ")
+                    
 
 
 def fix_code(code, ns, error):
@@ -215,14 +265,18 @@ def execute_function(function: Function, *args, **kwargs):
             comment = input("what went wrong?")
             impl = fix_code(impl, ns, f"Human feedback: {comment}")
 
-prompt=input("what do you want to do today?")
-print(
-    execute_function(
-        request_gpt4_implementation(
-            FunctionSpec.Schema().loads(
-                #                '{"sig": {"returnType":"str","name":"do_what_the_comment_says","args":[]},"comment":"write a bit of code for a simple web site advertising wizgpt, an autonomous agent powered by gpt-4; use the gcloud cli to deploy it (use the gcloud environment configs for project, region, etc). If you use app engine, remember to create an app.yaml specifying how to deploy the html","env":{}}'
-                '{"sig": {"returnType":"str","name":"do_what_the_comment_says","args":[]},"comment":"'+prompt+'","env":{}}'
-            )
-        ),
-    )
-)
+
+prompt = input("what do you want to do today?")
+do_at_repl(prompt)
+# print(
+#    execute_function(
+#        request_gpt4_implementation(
+#            FunctionSpec.Schema().loads(
+#                #                '{"sig": {"returnType":"str","name":"do_what_the_comment_says","args":[]},"comment":"write a bit of code for a simple web site advertising wizgpt, an autonomous agent powered by gpt-4; use the gcloud cli to deploy it (use the gcloud environment configs for project, region, etc). If you use app engine, remember to create an app.yaml specifying how to deploy the html","env":{}}'
+#                '{"sig": {"returnType":"str","name":"do_what_the_comment_says","args":[]},"comment":"'
+#                + prompt
+#                + '","env":{}}'
+#            )
+#        ),
+#    )
+# )
