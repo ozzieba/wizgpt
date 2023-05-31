@@ -47,6 +47,10 @@ You output should just be JSON that is directly parseable as a Function. Make su
 
 Omit the function signature in your implementation. That is, do not write the initial line starting with "def" in your Function's .impl field. Likewise, do not indent the content of the "impl" field.
 
+Your environment variables contain OPEN_AI_API_KEY and GITHUB_TOKEN
+
 Instead of returning from your function, set the content of a "result" variable.
 
 Do not use recursion.
+
+Do not output anything except the output JSON of the Function. Output only JSON, as it will be fed directly into an automated process, which will parse it into a Function.
